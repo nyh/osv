@@ -22,6 +22,14 @@
 #include <memory>
 #include <vector>
 
+// If RUNTIME_PSEUDOFLOAT, runtime_t is a pseudofloat<>. Otherwise, it is a float.
+#undef RUNTIME_PSEUDOFLOAT
+#ifdef RUNTIME_PSEUDOFLOAT
+#include <osv/pseudofloat.hh>
+#else
+typedef float runtime_t;
+#endif
+
 extern "C" {
 void smp_main();
 };
@@ -33,6 +41,9 @@ namespace elf {
     struct tls_data;
 }
 
+/**
+ * OSV Scheduler namespace
+ */
 namespace sched {
 
 class thread;
@@ -156,6 +167,7 @@ public:
     ~timer_base();
     void set(s64 time);
     bool expired() const;
+    bool armed() const;
     void cancel();
     friend bool operator<(const timer_base& t1, const timer_base& t2);
 private:
@@ -175,6 +187,79 @@ public:
     explicit timer(thread& t);
 };
 
+
+// thread_runtime is used to maintain the scheduler's view of the thread's
+// priority relative to other threads. It knows about a static priority of the
+// thread (allowing a certain thread to get more runtime than another threads)
+// and is used to maintain the "runtime" of each thread, a number which the
+// scheduler uses to decide which thread to run next, and for how long.
+// All methods of this class should be called only from within the scheduler.
+// https://docs.google.com/document/d/1W7KCxOxP-1Fy5EyF2lbJGE2WuKmu5v0suYqoHas1jRM
+class thread_runtime {
+public:
+    // Get the thread's CPU-local runtime, a number used to sort the runqueue
+    // on this CPU (lowest runtime will be run first). local_runtime cannot be
+    // compared between different different CPUs - see export_runtime().
+    inline runtime_t get_local() const
+    {
+        return _Rtt;
+    }
+    // Convert the thread's CPU-local runtime to a global scale which can be
+    // understood on any CPU. Use this function when migrating the thread to a
+    // different CPU, and the destination CPU should run update_after_sleep().
+    void export_runtime();
+    // Update the thread's local runtime after a sleep, when we potentially
+    // missed one or more renormalization steps (which were only done to
+    // runnable threads), or need to convert global runtime to local runtime.
+    void update_after_sleep();
+    // Increase thread's runtime considering that it has now run for "time"
+    // nanoseconds at the current priority.
+    // Remember that the run queue is ordered by local runtime, so never call
+    // ran_for() or hysteresis_run_*() on a thread which is already in the
+    // queue.
+    void ran_for(s64 time);
+    // Temporarily decrease the running thread's runtime to provide hysteresis
+    // (avoid switching threads quickly after deciding on one).
+    // Use hystersis_run_start() when switching to a thread, and
+    // hysteresis_run_stop() when switching away from a thread.
+    // and might break the runqueue's ordering).
+    void hysteresis_run_start();
+    void hysteresis_run_stop();
+    void add_context_switch_penalty();
+    // Given a target local runtime higher than our own, calculate how much
+    // time (in nanoseconds) it would take until ran_for(time) would bring our
+    // thread to the given target. Returns -1 if the time is too long to
+    // express in s64.
+    s64 time_until(runtime_t target_local_runtime) const;
+
+    void set_priority(runtime_t priority) {
+        _priority = priority;
+    }
+
+    runtime_t priority() const {
+        return _priority;
+    }
+
+    // set runtime from another thread's runtime. The other thread must
+    // be on the same CPU, so use the same local measurement.
+    void set_local(thread_runtime &other) {
+        _Rtt = other._Rtt;
+        _renormalize_count = other._renormalize_count;
+    }
+
+    thread_runtime();
+
+private:
+    runtime_t _priority;            // p in the document
+    runtime_t _Rtt;                 // R'' in the document
+    // If _renormalize_count == -1, it means the runtime is global
+    // (i.e., export_runtime() was called, or this is a new thread).
+    int _renormalize_count;
+};
+
+/**
+ * OSv thread
+ */
 class thread : private timer_base::client {
 public:
     struct stack_info {
@@ -218,6 +303,31 @@ public:
     void* get_tls(ulong module);
     void* setup_tls(ulong module, const void* tls_template,
             size_t init_size, size_t uninit_size);
+    /**
+     * Set thread's priority
+     *
+     * Set the thread's priority, used to determine how much CPU time it will
+     * get when competing for CPU time with other threads. The priority is a
+     * floating-point number in (0,inf], with lower priority getting more
+     * runtime. If one thread has priority s and a second has s/2, the second
+     * thread will get twice as much runtime than the first.
+     * An infinite priority (also sched::thread::priority_idle) means that the
+     * thread will only get to run when no other wants to run.
+     *
+     * The default priority for new threads is sched::thread::priority_default
+     * (1.0).
+     */
+    void set_priority(float priority);
+    static constexpr float priority_idle = std::numeric_limits<float>::infinity();
+    static constexpr float priority_default = 1.0;
+    /**
+     * Get thread's priority
+     *
+     * Returns the thread's priority, a floating-point number whose meaning is
+     * explained in set_priority().
+     */
+    float priority() const;
+
 private:
     void main();
     void switch_to();
@@ -254,13 +364,12 @@ private:
         terminated,
     };
     std::atomic<status> _status;
+    thread_runtime _runtime;
     attr _attr;
     cpu* _cpu;
     arch_thread _arch;
     arch_fpu _fpu;
     unsigned long _id;
-    s64 _vruntime;
-    static const s64 max_vruntime = std::numeric_limits<s64>::max();
     std::function<void ()> _cleanup;
     // When _ref_counter reaches 0, the thread can be deleted.
     // Starts with 1, decremented by complete() and also temporarily modified
@@ -276,6 +385,7 @@ private:
     friend class timer;
     friend class thread_runtime_compare;
     friend struct arch_cpu;
+    friend class thread_runtime;
     friend void ::smp_main();
     friend void ::smp_launch();
     friend void init(std::function<void ()> cont);
@@ -317,7 +427,7 @@ private:
 class thread_runtime_compare {
 public:
     bool operator()(const thread& t1, const thread& t2) const {
-        return t1._vruntime < t2._vruntime;
+        return t1._runtime.get_local() < t2._runtime.get_local();
     }
 };
 
@@ -334,6 +444,7 @@ struct cpu : private timer_base::client {
     unsigned id;
     struct arch_cpu arch;
     thread* bringup_thread;
+    thread* loadbalance_thread;
     runqueue_type runqueue;
     timer_list timers;
     timer_base preemption_timer;
@@ -347,6 +458,7 @@ struct cpu : private timer_base::client {
     thread* terminating_thread;
     s64 running_since;
     char* percpu_base;
+    std::atomic<bool> request_load_balance;
     static cpu* current();
     void init_on_cpu();
     void schedule(bool yield = false);
@@ -360,11 +472,13 @@ struct cpu : private timer_base::client {
     void load_balance();
     unsigned load();
     void reschedule_from_interrupt(bool preempt = false);
-    void enqueue(thread& t, bool waking = false);
+    void enqueue(thread& t);
     void init_idle_thread();
-    void update_preemption_timer(thread* current, s64 now, s64 run);
     virtual void timer_fired() override;
     class notifier;
+    // For new scheduling
+    runtime_t c;
+    int renormalize_count;
 };
 
 class cpu::notifier {
