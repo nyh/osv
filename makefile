@@ -88,7 +88,9 @@ clean:
 # on every compilation we "include" all the ".d" files generated in the
 # previous compilation, and create new ".d" when a source file changed
 # (and therefore got recompiled).
+ifneq ($(MAKECMDGOALS),clean)
 include $(shell test -d $(out) && find $(out) -name '*.d')
+endif
 
 # Before we can try to build anything in $(out), we need to make sure the
 # directory exists. Unfortunately, this is not quite enough, as when we
@@ -289,15 +291,18 @@ autodepend = -MD -MT $@ -MP
 
 do-sys-includes = $(foreach inc, $(sys-includes), -isystem $(inc))
 
+tools := tools/mkfs/mkfs.so tools/cpiod/cpiod.so
+
 $(out)/tools/%.o: COMMON += -fPIC
+
 #tools := tools/ifconfig/ifconfig.so
 #tools += tools/route/lsroute.so
-tools += tools/mkfs/mkfs.so
-tools += tools/cpiod/cpiod.so
 #tools += tools/uush/uush.so
 #tools += tools/uush/ls.so
 #tools += tools/uush/mkdir.so
-#tools += tools/libtools.so
+# TODO: we only need this libtools for the httpserver module... Better
+# move it to its own module, it shouldn't be in the OSv core...
+tools += tools/libtools.so
 #
 #$(out)/tools/route/lsroute.so: EXTRA_LIBS = -Ltools/ -ltools
 #
@@ -1681,8 +1686,9 @@ $(out)/tools/cpiod/cpiod.so: $(out)/tools/cpiod/cpiod.o $(out)/tools/cpiod/cpio.
 	$(makedir)
 	$(call quiet, $(CC) $(CFLAGS) -o $@ $(out)/tools/cpiod/cpiod.o $(out)/tools/cpiod/cpio.o -L$(out) -lzfs, LINK cpiod.so)
 
-#$(out)/tools/libtools.so: $(out)/tools/route/route_info.o $(out)/tools/ifconfig/network_interface.o
-#	 $(call quiet, $(CC) $(CFLAGS) -shared -o $(out)/tools/libtools.so $^, LINK $@)
+$(out)/tools/libtools.so: $(out)/tools/route/route_info.o $(out)/tools/ifconfig/network_interface.o
+	$(makedir)
+	 $(call quiet, $(CC) $(CFLAGS) -shared -o $(out)/tools/libtools.so $^, LINK libtools.so)
 
 $(out)/runtime.o: $(out)/gen/include/ctype-data.h
 

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/bash
 # This script replaces our old "make" command line - instead of
 # "make mode=debug image=rogue", use "build mode=debug image=rogue".
 # This first runs "make" with the same parameters, and then builds
@@ -17,13 +17,36 @@ then
 	exit 2
 fi
 
-img_format=qcow2   # TODO: override with parameter
-fs_size_mb=10240   # TODO: override with parameter
+# Look for arguments that look like "name=value", and set them in an
+# assoative array
+declare -A vars
+j_arg=
+for i
+do
+	case $i in
+	*=*)	name=${i%%=*}
+		value=${i#*=}
+		vars[$name]=$value;;
+	-j*)	j_arg = $i;;
+	esac
+done
+	
+
+img_format=${vars[img_format]-qcow2}
+fs_size_mb=${vars[fs_size_mb]-10240}
 
 SRC=`pwd`
 arch=`expr $OUT : '.*\.\(.*\)'`
-# From the Makefile...
-# TODO: continue (some modules need these... But better they wouldn't!!)
+
+# Set "modules" according to the image= or modules= paramters, or some
+# defaults (with same rules as in our old makefile)
+case $arch in
+aarch64) image=${vars[image]-uush};;
+*) image=${vars[image]-default};;
+esac
+modules=${vars[modules]-!$image}
+
+# TODO: some modules need these... But better they wouldn't...
 jdkbase=`find $SRC/external/$arch/openjdk.bin/usr/lib/jvm -maxdepth 1 -type d -name 'java*'`
 gccbase=$SRC/external/$arch/gcc.bin
 glibcbase=$SRC/external/$arch/glibc.bin
@@ -33,14 +56,17 @@ loader_size=`stat --printf %s $OUT/loader.img`
 zfs_start=$(($loader_size+2097151 & ~2097151))
 zfs_size=$(($fs_size_mb * 1024 * 1024 - $zfs_start))
 
-# build the module (and usr.manifest, cmdline and bootfs.manifest)
-# TODO: tools/libtools.so
 
-modules=!rogue # todo - parameter. modules ?= !$image
-
-#TODO: add -j parameter to module.py
-mkdir -p $OUT/module
-jdkbase=$jdkbase OSV_BASE=$SRC OSV_BUILD_PATH=$OUT/module scripts/module.py build -c $modules
+#mkdir -p $OUT/module
+# unfortunately, the current module.py overwrites $OSV_BUILD_PATH/bootfs.manifest.
+# but trying to set OSV_BUILD_PATH to $OUT/module (or something) will break existing module
+# makefiles (like httpserver) which try to find OSv.
+# TODO: this code should create a *different* file bootfs.manifest than the makefile does!!!!
+# module.py should to a different file name!
+# As a workaround we move and restore this file
+mv $OUT/bootfs.manifest $OUT/bootfs.manifest.save || :
+jdkbase=$jdkbase OSV_BASE=$SRC OSV_BUILD_PATH=$OUT scripts/module.py $j_arg build -c $modules
+mv $OUT/bootfs.manifest.save $OUT/bootfs.manifest || :
 
 #qemu-img create $OUT/bare.raw 100M
 #dd if=$OUT/loader.img of=$OUT/bare.raw conv=notrunc >/dev/null 2>&1
@@ -52,10 +78,12 @@ $SRC/scripts/imgedit.py setpartition bare.raw 2 $zfs_start $zfs_size
 
 qemu-img convert -f raw -O $img_format bare.raw usr.img
 qemu-img resize usr.img +${fs_size_mb}M >/dev/null 2>&1
+# TODO: why do we need to upload bootfs.manifest again? Bootfs.manifest
+# was needed just for bootstrapping, are we sure we need these files on zfs?
 $SRC/scripts/mkzfs.py -o usr.img -d usr.img.d -m bootfs.manifest
 
-$SRC/scripts/upload_manifest.py -o usr.img -m module/usr.manifest -D jdkbase=$jdkbase -D gccbase=$gccbase -D glibcbase=$glibcbase -D miscbase=$miscbase
-$SRC/scripts/imgedit.py setargs usr.img `cat module/cmdline`
+$SRC/scripts/upload_manifest.py -o usr.img -m usr.manifest -D jdkbase=$jdkbase -D gccbase=$gccbase -D glibcbase=$glibcbase -D miscbase=$miscbase
+$SRC/scripts/imgedit.py setargs usr.img `cat cmdline`
 
 # run.py uses build/release/cmdline. So need to copy it.
-cp module/cmdline cmdline
+#cp module/cmdline cmdline
