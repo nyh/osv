@@ -1,0 +1,61 @@
+#!/bin/sh
+# This script replaces our old "make" command line - instead of
+# "make mode=debug image=rogue", use "build mode=debug image=rogue".
+# This first runs "make" with the same parameters, and then builds
+# the requested image.
+
+set -e
+
+make "$@" | tee build.out
+
+# Find out where "make" decided to put its compilation results. We'll
+# put the images in the same place
+OUT=`awk < build.out '/^Building into / { print $3; exit }'`
+if ! test -d $OUT || ! test -f $OUT/loader.img
+then
+	echo "Can't figure out where 'make' left results..." >&2
+	exit 2
+fi
+
+img_format=qcow2   # TODO: override with parameter
+fs_size_mb=10240   # TODO: override with parameter
+
+SRC=`pwd`
+arch=`expr $OUT : '.*\.\(.*\)'`
+# From the Makefile...
+# TODO: continue (some modules need these... But better they wouldn't!!)
+jdkbase=`find $SRC/external/$arch/openjdk.bin/usr/lib/jvm -maxdepth 1 -type d -name 'java*'`
+gccbase=$SRC/external/$arch/gcc.bin
+glibcbase=$SRC/external/$arch/glibc.bin
+miscbase=$SRC/external/$arch/misc.bin
+
+loader_size=`stat --printf %s $OUT/loader.img`
+zfs_start=$(($loader_size+2097151 & ~2097151))
+zfs_size=$(($fs_size_mb * 1024 * 1024 - $zfs_start))
+
+# build the module (and usr.manifest, cmdline and bootfs.manifest)
+# TODO: tools/libtools.so
+
+modules=!rogue # todo - parameter. modules ?= !$image
+
+#TODO: add -j parameter to module.py
+mkdir -p $OUT/module
+jdkbase=$jdkbase OSV_BASE=$SRC OSV_BUILD_PATH=$OUT/module scripts/module.py build -c $modules
+
+#qemu-img create $OUT/bare.raw 100M
+#dd if=$OUT/loader.img of=$OUT/bare.raw conv=notrunc >/dev/null 2>&1
+
+cd $OUT
+
+cp loader.img bare.raw
+$SRC/scripts/imgedit.py setpartition bare.raw 2 $zfs_start $zfs_size
+
+qemu-img convert -f raw -O $img_format bare.raw usr.img
+qemu-img resize usr.img +${fs_size_mb}M >/dev/null 2>&1
+$SRC/scripts/mkzfs.py -o usr.img -d usr.img.d -m bootfs.manifest
+
+$SRC/scripts/upload_manifest.py -o usr.img -m module/usr.manifest -D jdkbase=$jdkbase -D gccbase=$gccbase -D glibcbase=$glibcbase -D miscbase=$miscbase
+$SRC/scripts/imgedit.py setargs usr.img `cat module/cmdline`
+
+# run.py uses build/release/cmdline. So need to copy it.
+cp module/cmdline cmdline
