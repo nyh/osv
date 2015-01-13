@@ -18,7 +18,7 @@ then
 fi
 
 # Look for arguments that look like "name=value", and set them in an
-# assoative array
+# assoative array "vars".
 declare -A vars
 j_arg=
 for i
@@ -46,7 +46,7 @@ aarch64) image=${vars[image]-uush};;
 esac
 modules=${vars[modules]-!$image}
 
-# TODO: some modules need these... But better they wouldn't...
+# TODO: some modules need these... Would be better if they wouldn't...
 jdkbase=`find $SRC/external/$arch/openjdk.bin/usr/lib/jvm -maxdepth 1 -type d -name 'java*'`
 gccbase=$SRC/external/$arch/gcc.bin
 glibcbase=$SRC/external/$arch/glibc.bin
@@ -56,21 +56,15 @@ loader_size=`stat --printf %s $OUT/loader.img`
 zfs_start=$(($loader_size+2097151 & ~2097151))
 zfs_size=$(($fs_size_mb * 1024 * 1024 - $zfs_start))
 
+case $OUT in
+/*)	OSV_BUILD_PATH=$OUT;;
+*)	OSV_BUILD_PATH=`pwd`/$OUT;;
+esac
 
-#mkdir -p $OUT/module
-# unfortunately, the current module.py overwrites $OSV_BUILD_PATH/bootfs.manifest.
-# but trying to set OSV_BUILD_PATH to $OUT/module (or something) will break existing module
-# makefiles (like httpserver) which try to find OSv.
-# TODO: this code should create a *different* file bootfs.manifest than the makefile does!!!!
-# module.py should to a different file name!
-# As a workaround we move and restore this file
-mv $OUT/bootfs.manifest $OUT/bootfs.manifest.save || :
-jdkbase=$jdkbase OSV_BASE=$SRC OSV_BUILD_PATH=$OUT scripts/module.py $j_arg build -c $modules
-mv $OUT/bootfs.manifest.save $OUT/bootfs.manifest || :
+jdkbase=$jdkbase OSV_BASE=$SRC OSV_BUILD_PATH=$OSV_BUILD_PATH scripts/module.py $j_arg build -c $modules
 
-#qemu-img create $OUT/bare.raw 100M
-#dd if=$OUT/loader.img of=$OUT/bare.raw conv=notrunc >/dev/null 2>&1
-
+# The python scripts called below assume the current directory is $OUT (as was
+# the case in our old build.mk).
 cd $OUT
 
 cp loader.img bare.raw
@@ -78,12 +72,16 @@ $SRC/scripts/imgedit.py setpartition bare.raw 2 $zfs_start $zfs_size
 
 qemu-img convert -f raw -O $img_format bare.raw usr.img
 qemu-img resize usr.img +${fs_size_mb}M >/dev/null 2>&1
-# TODO: why do we need to upload bootfs.manifest again? Bootfs.manifest
-# was needed just for bootstrapping, are we sure we need these files on zfs?
+# TODO: This "bootfs.manifest" is a misonmer... It doesn't really set the
+# bootfs (this is done in the Makefile) and will just be written to the
+# zfs. But it's kind of stupid that mkzfs.py uploads things to zfs, when
+# the upload_manifest.py call does this below. We should just drop this
+# upload part from mkzfs.py....
+# Moreover, it's stupid that module.py above created a bootfs.manifest which
+# includes bootfs.manifest - why do we need those things (like cpiod.so)
+# in every image's ZFS?
 $SRC/scripts/mkzfs.py -o usr.img -d usr.img.d -m bootfs.manifest
 
 $SRC/scripts/upload_manifest.py -o usr.img -m usr.manifest -D jdkbase=$jdkbase -D gccbase=$gccbase -D glibcbase=$glibcbase -D miscbase=$miscbase
 $SRC/scripts/imgedit.py setargs usr.img `cat cmdline`
 
-# run.py uses build/release/cmdline. So need to copy it.
-#cp module/cmdline cmdline

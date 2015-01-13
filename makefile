@@ -52,7 +52,9 @@ OBJCOPY=$(CROSS_PREFIX)objcopy
 out = build/$(mode).$(arch)
 outlink = build/$(mode)
 
+ifneq ($(MAKECMDGOALS),clean)
 $(info Building into $(out))
+endif
 
 ###########################################################################
 
@@ -1669,9 +1671,9 @@ $(out)/bsd/%.o: COMMON += -DSMP -D'__FBSDID(__str__)=extern int __bogus__'
 jni = java/jni/balloon.so java/jni/elf-loader.so java/jni/networking.so \
 	java/jni/stty.so java/jni/tracepoint.so java/jni/power.so java/jni/monitor.so
 
-$(out)/bootfs.bin: scripts/mkbootfs.py $(java-targets) $(out)/bootfs.manifest $(tools:%=$(out)/%) \
+$(out)/bootfs.bin: scripts/mkbootfs.py $(java-targets) bootfs.manifest.skel $(tools:%=$(out)/%) \
 		$(out)/zpool.so $(out)/zfs.so
-	$(call quiet, olddir=`pwd`; cd $(out); $$olddir/scripts/mkbootfs.py -o bootfs.bin -d bootfs.bin.d -m bootfs.manifest \
+	$(call quiet, olddir=`pwd`; cd $(out); $$olddir/scripts/mkbootfs.py -o bootfs.bin -d bootfs.bin.d -m $$olddir/bootfs.manifest.skel \
 		-D jdkbase=$(jdkbase) -D gccbase=$(gccbase) -D \
 		glibcbase=$(glibcbase) -D miscbase=$(miscbase), MKBOOTFS $@)
 
@@ -1713,8 +1715,8 @@ perhaps-modify-version-h:
 	$(call quiet, sh scripts/gen-version-header $(out)/gen/include/osv/version.h, GEN gen/include/osv/version.h)
 .PHONY: perhaps-modify-version-h
 
-$(out)/bootfs.manifest: bootfs.manifest.skel
-	$(call quiet, cp bootfs.manifest.skel $@, CP bootfs.manifest.skel bootfs.manifest)
+#$(out)/bootfs.manifest: bootfs.manifest.skel
+#	$(call quiet, cp bootfs.manifest.skel $@, CP bootfs.manifest.skel bootfs.manifest)
 
 ################################################################################
 
