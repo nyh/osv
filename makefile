@@ -277,10 +277,6 @@ $(out)/%.o: %.s
 	$(makedir)
 	$(call quiet, $(CXX) $(CXXFLAGS) $(ASFLAGS) -c -o $@ $<, AS $*.s)
 
-$(out)/%.class: %.java
-	$(makedir)
-	$(call quiet, javac -d $(javabase) -cp $(javabase) $^, JAVAC $@)
-
 $(out)/tests/%.o: COMMON += -fPIC -DBOOST_TEST_DYN_LINK
 
 %.so: EXTRA_FLAGS = -fPIC -shared
@@ -1668,10 +1664,7 @@ $(out)/loader.elf: $(out)/arch/$(arch)/boot.o arch/$(arch)/loader.ld $(out)/load
 
 $(out)/bsd/%.o: COMMON += -DSMP -D'__FBSDID(__str__)=extern int __bogus__'
 
-jni = java/jni/balloon.so java/jni/elf-loader.so java/jni/networking.so \
-	java/jni/stty.so java/jni/tracepoint.so java/jni/power.so java/jni/monitor.so
-
-$(out)/bootfs.bin: scripts/mkbootfs.py $(java-targets) bootfs.manifest.skel $(tools:%=$(out)/%) \
+$(out)/bootfs.bin: scripts/mkbootfs.py bootfs.manifest.skel $(tools:%=$(out)/%) \
 		$(out)/zpool.so $(out)/zfs.so
 	$(call quiet, olddir=`pwd`; cd $(out); $$olddir/scripts/mkbootfs.py -o bootfs.bin -d bootfs.bin.d -m $$olddir/bootfs.manifest.skel \
 		-D jdkbase=$(jdkbase) -D gccbase=$(gccbase) -D \
