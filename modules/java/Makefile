@@ -1,0 +1,11 @@
+# TODO: need to move compilation of $(java-targets) from the main makefile
+# to here. Unfortunately, compiling with OSv header files is a big mess,
+# and much easier to do it in the main OSv makefile :-(
+SRC = $(shell readlink -f ../..)
+# TODO: we should have run mvn here, in modules/java, not in $(SRC)/java.
+module: #$(jni)
+	cd $(SRC)/java && mvn package -q -DskipTests=true
+
+clean:
+	cd $(DIR) && mvn clean -q
+	-rm -f dependency-reduced-pom.xml
