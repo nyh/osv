@@ -356,9 +356,9 @@ $(out)/boot.bin: arch/x64/boot16.ld $(out)/arch/x64/boot16.o
 image-size = $(shell stat --printf %s $(out)/lzloader.elf)
 
 $(out)/loader.img: $(out)/boot.bin $(out)/lzloader.elf
-	$(call quiet, dd if=$(out)/boot.bin of=$@ > /dev/null 2>&1, DD $@ boot.bin)
+	$(call quiet, dd if=$(out)/boot.bin of=$@ > /dev/null 2>&1, DD loader.img boot.bin)
 	$(call quiet, dd if=$(out)/lzloader.elf of=$@ conv=notrunc seek=128 > /dev/null 2>&1, \
-		DD $@ lzloader.elf)
+		DD loader.img lzloader.elf)
 	$(call quiet, scripts/imgedit.py setsize $@ $(image-size), IMGEDIT $@)
 	$(call quiet, scripts/imgedit.py setargs $@ $(cmdline), IMGEDIT $@)
 
@@ -377,8 +377,8 @@ $(out)/fastlz/lz: fastlz/fastlz.cc fastlz/lz.cc
 	$(call quiet, $(CXX) $(CXXFLAGS) -O2 -o $@ $(filter %.cc, $^), CXX $@)
 
 $(out)/loader-stripped.elf.lz.o: $(out)/loader-stripped.elf $(out)/fastlz/lz
-	$(call quiet, $(out)/fastlz/lz $(out)/loader-stripped.elf, LZ $@)
-	$(call quiet, cd $(out); objcopy -B i386 -I binary -O elf32-i386 loader-stripped.elf.lz loader-stripped.elf.lz.o, OBJCOPY $@)
+	$(call quiet, $(out)/fastlz/lz $(out)/loader-stripped.elf, LZ loader-stripped.elf)
+	$(call quiet, cd $(out); objcopy -B i386 -I binary -O elf32-i386 loader-stripped.elf.lz loader-stripped.elf.lz.o, OBJCOPY loader-stripped.elf.lz -> loader-stripped.elf.lz.o)
 
 $(out)/fastlz/lzloader.o: fastlz/lzloader.cc
 	$(call quiet, $(CXX) $(CXXFLAGS) -O2 -m32 -fno-instrument-functions -o $@ -c fastlz/lzloader.cc, CXX $<)
@@ -389,7 +389,7 @@ $(out)/lzloader.elf: $(out)/loader-stripped.elf.lz.o $(out)/fastlz/lzloader.o ar
 	$(call quiet, $(LD) -o $@ \
 		-Bdynamic --export-dynamic --eh-frame-hdr --enable-new-dtags \
 		-T arch/x64/lzloader.ld \
-		$(filter %.o, $^), LD $@)
+		$(filter %.o, $^), LINK lzloader.elf)
 
 acpi-defines = -DACPI_MACHINE_WIDTH=64 -DACPI_USE_LOCAL_CACHE
 
@@ -1660,10 +1660,14 @@ boost-mt := $(if $(filter %-mt.a, $(wildcard $(boost-lib-dir)/*.a)),-mt)
 boost-libs := $(boost-lib-dir)/libboost_program_options$(boost-mt).a \
               $(boost-lib-dir)/libboost_system$(boost-mt).a
 
+# ld has a known bug (https://sourceware.org/bugzilla/show_bug.cgi?id=6468)
+# where if the executable doesn't use shared libraries, its .dynamic section
+# is dropped, even when we use the "--export-dynamic" (which is silently
+# ignored). The workaround is to link loader.elf with a do-nothing library.
 $(out)/dummy-shlib.so: $(out)/dummy-shlib.o
-	$(call quiet, $(CXX) -nodefaultlibs -shared $(gcc-sysroot) -o $@ $^, LD $@)
+	$(call quiet, $(CXX) -nodefaultlibs -shared $(gcc-sysroot) -o $@ $^, LINK $@)
 
-$(out)/loader.elf: $(out)/arch/$(arch)/boot.o arch/$(arch)/loader.ld $(out)/loader.o $(out)/runtime.o $(drivers:%=$(out)/%) $(objects:%=$(out)/%) $(out)/dummy-shlib.so $(out)/bootfs.bin
+$(out)/loader.elf: $(out)/arch/$(arch)/boot.o arch/$(arch)/loader.ld $(out)/loader.o $(out)/runtime.o $(drivers:%=$(out)/%) $(objects:%=$(out)/%) $(out)/bootfs.bin $(out)/dummy-shlib.so
 	$(call quiet, $(LD) -o $@ --defsym=OSV_KERNEL_BASE=$(kernel_base) \
 		-Bdynamic --export-dynamic --eh-frame-hdr --enable-new-dtags \
 	    $(filter-out %.bin, $(^:%.ld=-T %.ld)) \
