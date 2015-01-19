@@ -400,7 +400,6 @@ $(acpi:%=$(out)/%): CFLAGS += -fno-strict-aliasing -Wno-strict-aliasing
 
 endif # x64
 
-# TODO: get rid of this special aarch64 version...
 ifeq ($(arch),aarch64)
 
 kernel_base := 0x40080000
@@ -415,7 +414,7 @@ $(out)/preboot.elf: arch/$(arch)/preboot.ld $(out)/arch/$(arch)/preboot.o
 $(out)/preboot.bin: $(out)/preboot.elf
 	$(call quiet, $(OBJCOPY) -O binary $^ $@, OBJCOPY $@)
 
-image-size = $(shell stat --printf %s $(out)/loader-stripped.elf)
+#image-size = $(shell stat --printf %s $(out)/loader-stripped.elf)
 
 $(out)/loader.img: $(out)/preboot.bin $(out)/loader-stripped.elf
 	$(call quiet, dd if=$(out)/preboot.bin of=$@ > /dev/null 2>&1, DD $@ preboot.bin)
