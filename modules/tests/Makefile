@@ -14,25 +14,17 @@ makedir = $(call very-quiet, mkdir -p $(dir $@))
 
 autodepend = -MD -MT $@ -MP
 
-local-includes =
-INCLUDES = $(local-include) -I$(src)/arch/$(ARCH) -I$(src) -I$(src)/include \
+INCLUDES = -I$(src)/arch/$(ARCH) -I$(src) -I$(src)/include \
 	-I$(src)/arch/common -isystem $(src)/include/glibc-compat \
 	-isystem $(src)/include/api -isystem $(src)/include/api/$(ARCH) \
 	-isystem $(out)/gen/include
 
-COMMON = $(autodepend) $(INCLUDES) -g -fPIC -DBOOST_TEST_DYN_LINK \
+COMMON = $(autodepend) $(INCLUDES) -g -O2 -fPIC -DBOOST_TEST_DYN_LINK \
 	-U _FORTIFY_SOURCE -D_KERNEL -D__OSV__ -DCONF_debug_memory=0 \
 	-Wall -Wno-pointer-arith -Wformat=0 -Wno-format-security
 
 CXXFLAGS = -std=gnu++11 $(COMMON)
 CFLAGS = -std=gnu99 $(COMMON)
-
-#$(out)/%.o: %.cc
-#        $(makedir)
-#        $(call quiet, $(CXX) $(CXXFLAGS) -c -o $@ $<, CXX $*.cc)
-#%.so: %.o
-#        $(makedir)
-#	$(call quiet, $(CXX) $(CXXFLAGS) -shared -o $@ $^, LINK $@)
 
 $(out)/%.so: $(src)/%.cc
 	$(makedir)
@@ -44,8 +36,6 @@ $(out)/%.so: $(src)/%.c
 
 #COMMON += -fPIC -DBOOST_TEST_DYN_LINK
 
-
-java_tests := tests/hello/Hello.class
 
 tests := tst-pthread.so tst-ramdisk.so tst-vblk.so tst-bsd-evh.so \
 	misc-bsd-callout.so tst-bsd-kthread.so tst-bsd-taskqueue.so \
@@ -129,22 +119,11 @@ $(solaris) $(solaris-tests): CFLAGS+= \
 
 #tests += $(solaris-tests)
 
-
-
-
-tests/hello/Hello.class: javabase=tests/hello
-
-
-
-
-
 # Automatically generate usr.manifest which includes all tests.
 usr.manifest: $(all_tests:%=$(out)/%) $(lastword $(MAKEFILE_LIST))
 	@echo "  generating modules/tests/usr.manifest"
 	@cat $@.skel > $@
 	@echo $(all_tests) | tr ' ' '\n' | awk '{print "/" $$0 ": ./" $$0}' >> $@
-#	@echo $(java_tests) | tr ' ' '\n' | \
-#	    awk '{a=$$0; sub(".*/","",a); print "/java/" a ": ./" $$0}' >> $@
 
 clean:
 	-rm -f usr.manifest
