@@ -297,8 +297,6 @@ $(out)/%.o: %.s
 	$(makedir)
 	$(call quiet, $(CXX) $(CXXFLAGS) $(ASFLAGS) -c -o $@ $<, AS $*.s)
 
-$(out)/tests/%.o: COMMON += -fPIC -DBOOST_TEST_DYN_LINK
-
 %.so: EXTRA_FLAGS = -fPIC -shared
 %.so: %.o
 	$(makedir)
@@ -574,8 +572,6 @@ solaris += bsd/sys/cddl/contrib/opensolaris/uts/common/zmod/trees.o
 solaris += bsd/sys/cddl/contrib/opensolaris/uts/common/zmod/zmod.o
 solaris += bsd/sys/cddl/contrib/opensolaris/uts/common/zmod/zmod_subr.o
 solaris += bsd/sys/cddl/contrib/opensolaris/uts/common/zmod/zutil.o
-
-solaris-tests += tests/tst-solaris-taskq.so
 
 zfs += bsd/sys/cddl/contrib/opensolaris/common/zfs/zfeature_common.o
 zfs += bsd/sys/cddl/contrib/opensolaris/common/zfs/zfs_comutil.o

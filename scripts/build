@@ -74,7 +74,7 @@ case $OUT in
 *)	OSV_BUILD_PATH=`pwd`/$OUT;;
 esac
 
-jdkbase=$jdkbase OSV_BASE=$SRC OSV_BUILD_PATH=$OSV_BUILD_PATH scripts/module.py $j_arg build -c $modules
+jdkbase=$jdkbase ARCH=$arch OSV_BASE=$SRC OSV_BUILD_PATH=$OSV_BUILD_PATH scripts/module.py $j_arg build -c $modules
 
 # The python scripts called below assume the current directory is $OUT (as was
 # the case in our old build.mk).
