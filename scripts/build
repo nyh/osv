@@ -8,6 +8,20 @@ set -e
 
 make "$@" | tee build.out
 
+for i
+do
+	case $i in
+	clean)	# "build clean" is like "make clean" (see above) to clean
+		# the kernel, plus additional cleanups of all modules.
+		set -x
+		cd java
+		mvn clean -q
+		cd ..
+		OSV_BASE=`pwd` scripts/module.py clean -q
+		exit;;
+	esac
+done
+
 # Find out where "make" decided to put its compilation results. We'll
 # put the images in the same place
 OUT=`awk < build.out '/^Building into / { print $3; exit }'`

@@ -3,9 +3,9 @@
 # and much easier to do it in the main OSv makefile :-(
 SRC = $(shell readlink -f ../..)
 # TODO: we should have run mvn here, in modules/java, not in $(SRC)/java.
-module: #$(jni)
+module:
 	cd $(SRC)/java && mvn package -q -DskipTests=true
 
 clean:
-	cd $(DIR) && mvn clean -q
+	cd $(SRC)/java && mvn clean -q
 	-rm -f dependency-reduced-pom.xml
