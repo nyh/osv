@@ -12,6 +12,13 @@
 # isn't, for historical reasons, so we need to turn it on explicitly...
 .DELETE_ON_ERROR:
 ###########################################################################
+ifdef image
+$(error Please use scripts/build to build images)
+endif
+ifdef module
+$(error Please use scripts/build to build images)
+endif
+###########################################################################
 
 include conf/base.mk
 
