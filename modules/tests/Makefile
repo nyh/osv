@@ -1,12 +1,12 @@
 module: usr.manifest
 
 # Paths set by scripts/build
-# TODO: consider setting $(out) not to OSV_BUILD_PATH but to ./build/$ARCH.
-# TODO: need to set up CXX, etc., for cross compilation, as in the main
-# Makefile?
 src := $(OSV_BASE)
 out := $(OSV_BUILD_PATH)
 arch := $(ARCH)
+# TODO: consider setting $(out) not to OSV_BUILD_PATH but to ./build/$ARCH.
+# TODO: need to set up CXX, etc., for cross compilation, as in the main
+# Makefile...
 
 quiet = $(if $V, $1, @echo " $2"; $1)
 very-quiet = $(if $V, $1, @$1)
@@ -28,14 +28,11 @@ CFLAGS = -std=gnu99 $(COMMON)
 
 $(out)/%.so: $(src)/%.cc
 	$(makedir)
-	$(call quiet, $(CXX) $(CXXFLAGS) -shared -o $@ $^, CXX $@)
+	$(call quiet, $(CXX) $(CXXFLAGS) -shared -o $@ $^, CXX $*.cc)
 
 $(out)/%.so: $(src)/%.c
 	$(makedir)
-	$(call quiet, $(CC) $(CFLAGS) -shared -o $@ $^, CC $@)
-
-#COMMON += -fPIC -DBOOST_TEST_DYN_LINK
-
+	$(call quiet, $(CC) $(CFLAGS) -shared -o $@ $^, CC $*.c)
 
 tests := tst-pthread.so tst-ramdisk.so tst-vblk.so tst-bsd-evh.so \
 	misc-bsd-callout.so tst-bsd-kthread.so tst-bsd-taskqueue.so \
@@ -61,13 +58,21 @@ tests := tst-pthread.so tst-ramdisk.so tst-vblk.so tst-bsd-evh.so \
 	tst-sigwait.so tst-sampler.so misc-malloc.so misc-memcpy.so \
 	misc-free-perf.so tst-fallocate.so misc-printf.so tst-hostname.so \
 	tst-sendfile.so misc-lock-perf.so tst-uio.so tst-printf.so \
-	tst-pthread-affinity.so tst-pthread-tsd.so tst-thread-local.so
+	tst-pthread-affinity.so tst-pthread-tsd.so tst-thread-local.so \
+	libstatic-thread-variable.so tst-static-thread-variable.so \
+	tst-zfs-mount.so
 
 tests += testrunner.so
 
-# Tests with special compilation needed...
+# Tests with special compilation parameters needed...
 $(out)/tests/tst-mmap.so: COMMON += -Wl,-z,now
 $(out)/tests/tst-elf-permissions.so: COMMON += -Wl,-z,relro
+
+$(out)/tests/tst-static-thread-variable.so: \
+		$(src)/tests/tst-static-thread-variable.cc \
+		$(out)/tests/libstatic-thread-variable.so
+	$(makedir)
+	$(call quiet, cd $(out); $(CXX) $(CXXFLAGS) -shared -o $@ $< tests/libstatic-thread-variable.so, CXX tst-static-thread-variable.cc)
 
 boost-tests := tst-rename.so tst-vfs.so tst-libc-locking.so misc-fs-stress.so \
 	misc-bdev-write.so misc-bdev-wlatency.so misc-bdev-rw.so \
@@ -78,46 +83,41 @@ boost-tests := tst-rename.so tst-vfs.so tst-libc-locking.so misc-fs-stress.so \
 	tst-rcu-hashtable.so tst-unordered-ring-mpsc.so \
 	tst-seek.so
 
+BOOSTLIBS=$(src)/external/$(ARCH)/misc.bin/usr/lib64
 $(boost-tests:%=$(out)/tests/%): \
-	 $(src)/external/$(ARCH)/misc.bin/usr/lib64/libboost_unit_test_framework.so \
-	 $(src)/external/$(ARCH)/misc.bin/usr/lib64/libboost_filesystem.so
+	 $(BOOSTLIBS)/libboost_unit_test_framework.so \
+	 $(BOOSTLIBS)/libboost_filesystem.so
 
 tests += $(boost-tests)
 
-all_tests := $(tests:%=tests/%)
+solaris-tests := tst-solaris-taskq.so
 
-
-# tests/bench/bench.jar tests/reclaim/reclaim.jar
-#tests += tests/libstatic-thread-variable.so tests/tst-static-thread-variable.so
-tests/tst-static-thread-variable.so: tests/libstatic-thread-variable.so
-
-solaris-tests += tests/tst-solaris-taskq.so
-
-zfs-tests += tests/misc-zfs-disk.so
-zfs-tests += tests/misc-zfs-io.so
-zfs-tests += tests/misc-zfs-arc.so
-
-#tests += tests/tst-zfs-mount.so
-
+# FIXME: two of the test below can't compile now because of include path
+# (BSD and OSv header files get mixed up, etc.).
+#zfs-tests := misc-zfs-disk.so misc-zfs-io.so misc-zfs-arc.so
+zfs-tests := misc-zfs-io.so 
 solaris-tests += $(zfs-tests)
 
-$(zfs) $(zfs-tests): CFLAGS+= \
+tests += $(solaris-tests)
+
+$(zfs-tests:%=$(out)/tests/%): COMMON+= \
         -DBUILDING_ZFS \
         -I$(src)/bsd/sys/cddl/contrib/opensolaris/uts/common/fs/zfs \
-        -I$(src)/bsd/sys/cddl/contrib/opensolaris/common/zfs
+        -I$(src)/bsd/sys/cddl/contrib/opensolaris/common/zfs 
 
-$(solaris) $(solaris-tests): CFLAGS+= \
+$(solaris-tests:%=$(out)/tests/%): COMMON+= \
         -Wno-strict-aliasing \
         -Wno-unknown-pragmas \
         -Wno-unused-variable \
+        -Wno-unused-but-set-variable \
         -Wno-switch \
         -Wno-maybe-uninitialized \
-        -I$(src)/bsd/sys/cddl/compat/opensolaris \
         -I$(src)/bsd/sys/cddl/contrib/opensolaris/common \
         -I$(src)/bsd/sys/cddl/contrib/opensolaris/uts/common \
-        -I$(src)/bsd/sys
+        -I$(src)/bsd/sys/cddl/compat/opensolaris \
+	-I $(src)/bsd/sys -I $(src)/bsd -I $(src)/bsd/$(ARCH)
 
-#tests += $(solaris-tests)
+all_tests := $(tests:%=tests/%)
 
 # Automatically generate usr.manifest which includes all tests.
 usr.manifest: $(all_tests:%=$(out)/%) $(lastword $(MAKEFILE_LIST))
@@ -131,4 +131,3 @@ clean:
 ifneq ($(MAKECMDGOALS),clean)
 include $(shell test -d $(out)/tests && find $(out)/tests -name '*.d')
 endif
-
