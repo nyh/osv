@@ -56,7 +56,12 @@ do
 done
 
 img_format=${vars[img_format]-qcow2}
+# fs_size_mb is in megabytes (1024*1024 bytes)
 fs_size_mb=${vars[fs_size_mb]-10240}
+# fs_size is in bytes
+fs_size=${vars[fs_size]-$(($fs_size_mb*1024*1024))}
+# size must be a multiple of 512. Round it down
+fs_size=$((fs_size - (fs_size & 511)))
 
 SRC=`pwd`
 arch=`expr $OUT : '.*\.\(.*\)'`
@@ -77,7 +82,7 @@ miscbase=$SRC/external/$arch/misc.bin
 
 loader_size=`stat --printf %s $OUT/loader.img`
 zfs_start=$(($loader_size+2097151 & ~2097151))
-zfs_size=$(($fs_size_mb * 1024 * 1024 - $zfs_start))
+zfs_size=$(($fs_size - $zfs_start))
 
 case $OUT in
 /*)	OSV_BUILD_PATH=$OUT;;
@@ -95,7 +100,7 @@ $SRC/scripts/imgedit.py setpartition bare.raw 2 $zfs_start $zfs_size
 
 qemu-img convert -f raw -O $img_format bare.raw usr.img
 # TODO: why the "+" below?
-qemu-img resize usr.img +${fs_size_mb}M >/dev/null 2>&1
+qemu-img resize usr.img ${fs_size}b >/dev/null 2>&1
 # TODO: This "bootfs.manifest" is a misonmer... It doesn't really set the
 # bootfs (this was done by the makefile) and will just be written to the
 # zfs. But it's kind of stupid that mkzfs.py uploads things to zfs, when
