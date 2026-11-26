@@ -59,7 +59,11 @@ $(out)/.config: $(CONF_FILES) $(out)/kbuild/kconfig/conf
 	$(call quiet, mode=$(mode) arch=$(arch) CONFIG_=CONF_ KCONFIG_AUTOHEADER=$(out)/gen/include/osv/kernel_config.h KCONFIG_AUTOCONFIG=$(out)/gen/config/kernel.conf KCONFIG_RUSTCCFG=$(out)/gen/include/osv/rustc_cfg KCONFIG_CONFIG=$(out)/.config $(out)/kbuild/kconfig/conf -s conf/kconfig/main --alldefconfig, CONF_DEF $(out)/.config)
 
 #Generate the .config.yes, gen/include/osv/kernel_yes_config.h with all available options
+#conf writes kernel_yes_config.h, together with gen/config_yes/kernel_yes.conf,
+#only when kernel_yes.conf does not exist yet (outside --syncconfig it does not
+#overwrite them), so remove it to pick up options added since the first build.
 $(out)/.config.yes: $(CONF_FILES) $(out)/kbuild/kconfig/conf
+	@rm -f $(out)/gen/config_yes/kernel_yes.conf
 	$(call quiet, mode=$(mode) arch=$(arch) CONFIG_=CONF_ KCONFIG_AUTOHEADER=$(out)/gen/include/osv/kernel_yes_config.h KCONFIG_AUTOCONFIG=$(out)/gen/config_yes/kernel_yes.conf KCONFIG_RUSTCCFG=$(out)/gen/include/osv/rustc_cfg KCONFIG_CONFIG=$(out)/.config.yes $(out)/kbuild/kconfig/conf -s conf/kconfig/main --allyesconfig, CONF_YES $(out)/.config.yes)
 
 #Synchronize gen/include/osv/kernel_config.h and gen/config/kernel.conf with .config if the latter has changed maybe by mconf
